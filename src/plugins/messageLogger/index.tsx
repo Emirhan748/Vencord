@@ -14,7 +14,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
-*/
+ */
 
 import "./messageLogger.css";
 
@@ -84,7 +84,7 @@ const settings = definePluginSettings({
     ignoreSelf: {
         type: OptionType.BOOLEAN,
         description: "Whether to ignore messages by yourself",
-        default: false
+        default: true // BURASI DEĞİŞTİ: Kendi mesajlarımızı varsayılan olarak loglamıyoruz
     },
     ignoreUsers: {
         type: OptionType.STRING,
