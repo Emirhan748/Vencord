@@ -14,7 +14,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
-*/
+ */
 
 import "./messageLogger.css";
 
@@ -84,7 +84,7 @@ const settings = definePluginSettings({
     ignoreSelf: {
         type: OptionType.BOOLEAN,
         description: "Whether to ignore messages by yourself",
-        default: false
+        default: true // Varsayılan olarak kendi mesajlarını gizle
     },
     ignoreUsers: {
         type: OptionType.STRING,
@@ -293,15 +293,19 @@ export default definePlugin({
             const { ignoreBots, ignoreSelf, ignoreUsers, ignoreChannels, ignoreGuilds, logEdits, logDeletes } = settings.store;
             const myId = UserStore.getCurrentUser().id;
 
-            return ignoreBots && message.author?.bot ||
-                ignoreSelf && message.author?.id === myId ||
-                ignoreUsers.includes(message.author?.id) ||
+            // DÜZELTME: Discord cache yapısında yazar ID'si bazen doğrudan string, bazen obje içinde id olarak gelir.
+            const authorId = message.author?.id || message.author_id || (typeof message.author === "string" ? message.author : undefined);
+            const isBot = message.author?.bot || message.author?.is_bot;
+
+            return ignoreBots && isBot ||
+                ignoreSelf && authorId === myId ||
+                ignoreUsers.includes(authorId) ||
                 ignoreChannels.includes(message.channel_id) ||
                 ignoreChannels.includes(ChannelStore.getChannel(message.channel_id)?.parent_id) ||
                 (isEdit ? !logEdits : !logDeletes) ||
                 ignoreGuilds.includes(ChannelStore.getChannel(message.channel_id)?.guild_id) ||
                 // Ignore Venbot in the support channels
-                (message.author?.id === VENBOT_USER_ID && ChannelStore.getChannel(message.channel_id)?.parent_id === SUPPORT_CATEGORY_ID);
+                (authorId === VENBOT_USER_ID && ChannelStore.getChannel(message.channel_id)?.parent_id === SUPPORT_CATEGORY_ID);
         } catch (e) {
             return false;
         }
@@ -320,8 +324,6 @@ export default definePlugin({
         );
     },
 
-    // DELETED_MESSAGE_COUNT: getMessage("{count, plural, =0 {No deleted messages} one {{count} deleted message} other {{count} deleted messages}}")
-    // TODO: Find a better way to generate intl messages
     DELETED_MESSAGE_COUNT: () => ({
         ast: [[
             6,
@@ -353,7 +355,6 @@ export default definePlugin({
             find: '"MessageStore"',
             replacement: [
                 {
-                    // Add deleted=true to all target messages in the MESSAGE_DELETE event
                     match: /(?<=MESSAGE_DELETE:function\((\i)\)\{)(?=let.{0,100}(\i\.\i)\.getOrCreate)/,
                     replace: `
                         let cache = $2.getOrCreate($1.channelId);
@@ -363,7 +364,6 @@ export default definePlugin({
                     `
                 },
                 {
-                    // Add deleted=true to all target messages in the MESSAGE_DELETE_BULK event
                     match: /(?<=MESSAGE_DELETE_BULK:function\((\i)\){)(?=let.{0,100}(\i\.\i)\.getOrCreate)/,
                     replace: `
                         let cache = $2.getOrCreate($1.channelId);
@@ -373,7 +373,6 @@ export default definePlugin({
                     `
                 },
                 {
-                    // Add current cached content + new edit time to cached message's editHistory
                     match: /(MESSAGE_UPDATE:function\((\i)\).+?)\.update\((\i)/,
                     replace: `
                         $1
@@ -387,15 +386,12 @@ export default definePlugin({
                     `
                 },
                 {
-                    // fix up key (edit last message) attempting to edit a deleted message
                     match: /(?<=getLastEditableMessage\(\i\)\{.{0,200}\.find\((\i)=>)/,
                     replace: "!$1.deleted &&"
                 }
             ]
         },
-
         {
-            // Message domain model
             find: "}addReaction(",
             replacement: [
                 {
@@ -407,21 +403,15 @@ export default definePlugin({
                 }
             ]
         },
-
         {
-            // Updated message transformer(?)
             find: ".PREMIUM_REFERRAL&&(",
             replacement: [
                 {
-                    // Pass through editHistory & deleted & original attachments to the "edited message" transformer
                     match: /(?<=null!=\i\.edited_timestamp\)return )\i\(\i,\{reactions:(\i)\.reactions.{0,50}\}\)/,
                     replace:
                         "Object.assign($&,{ deleted:$1.deleted, editHistory:$1.editHistory, firstEditTimestamp:$1.firstEditTimestamp })"
                 },
-
                 {
-                    // Construct new edited message and add editHistory & deleted (ref above)
-                    // Pass in custom data to attachment parser to mark attachments deleted as well
                     match: /attachments:(\i)\((\i)\)/,
                     replace:
                         "attachments: $1((() => {" +
@@ -439,7 +429,6 @@ export default definePlugin({
                         "firstEditTimestamp: new Date(arguments[1]?.firstEditTimestamp ?? $2.editedTimestamp ?? $2.timestamp)"
                 },
                 {
-                    // Preserve deleted attribute on attachments
                     match: /(\((\i)\){return null==\2\.attachments.+?)spoiler:/,
                     replace:
                         "$1deleted: arguments[0]?.deleted," +
@@ -447,9 +436,7 @@ export default definePlugin({
                 }
             ]
         },
-
         {
-            // Attachment renderer
             find: "#{intl::REMOVE_ATTACHMENT_TOOLTIP_TEXT}",
             replacement: [
                 {
@@ -458,40 +445,30 @@ export default definePlugin({
                 }
             ]
         },
-
         {
-            // Base message component renderer
             find: "Message must not be a thread starter message",
             replacement: [
                 {
-                    // Append messagelogger-deleted to classNames if deleted
                     match: /\)\("li",\{(.+?),className:/,
                     replace: ")(\"li\",{$1,className:(arguments[0].message.deleted ? \"messagelogger-deleted \" : \"\")+"
                 }
             ]
         },
-
         {
-            // Message content renderer
             find: ".SEND_FAILED,",
             replacement: {
-                // Render editHistory behind the message content
                 match: /\]:\i.isUnsupported.{0,20}?,children:\[/,
                 replace: "$&arguments[0]?.message?.editHistory?.length>0&&$self.renderEdits(arguments[0]),"
             }
         },
-
         {
             find: "#{intl::MESSAGE_EDITED}",
             replacement: {
-                // Make edit marker clickable
                 match: /(isInline:!1,children:.{0,50}?)"span",\{(?=className:)/,
                 replace: "$1$self.EditMarker,{message:arguments[0].message,"
             }
         },
-
         {
-            // ReferencedMessageStore
             find: '"ReferencedMessageStore"',
             replacement: [
                 {
@@ -504,20 +481,16 @@ export default definePlugin({
                 }
             ]
         },
-
         {
-            // Message context base menu
             find: ".MESSAGE,commandTargetId:",
             replacement: [
                 {
-                    // Remove the first section if message is deleted
                     match: /children:(\[""===.+?\])/,
                     replace: "children:arguments[0].message.deleted?[]:$1"
                 }
             ]
         },
         {
-            // Message grouping
             find: "NON_COLLAPSIBLE.has(",
             replacement: {
                 match: /if\((\i)\.blocked\)return \i\.\i\.MESSAGE_GROUP_BLOCKED;/,
@@ -526,7 +499,6 @@ export default definePlugin({
             predicate: () => settings.store.collapseDeleted
         },
         {
-            // Message group rendering
             find: "#{intl::NEW_MESSAGES_ESTIMATED_WITH_DATE}",
             replacement: [
                 {
