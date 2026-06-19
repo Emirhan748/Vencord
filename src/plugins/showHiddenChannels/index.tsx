@@ -82,7 +82,7 @@ export default definePlugin({
             replacement: [
                 // Remove the special logic for channels we don't have access to
                 {
-                    match: /if\(!\i\.\i\.can\(\i\.\i\.VIEW_CHANNEL.+?{if\(this\.id===\i\).+?threadIds:\[\]}}/,
+                    match: /if\(!\i\.\i\.can\(.+?VIEW_CHANNEL.+?{if\(this\.id===\i\).+?threadIds:\[\]}}/,
                     replace: ""
                 },
                 // Do not check for unreads when selecting the render level if the channel is hidden
@@ -97,7 +97,7 @@ export default definePlugin({
                 },
                 // Remove permission checking for getRenderLevel function
                 {
-                    match: /(getRenderLevel\(\i\){.+?return)!\i\.\i\.can\(\i\.\i\.VIEW_CHANNEL,this\.record\)\|\|/,
+                    match: /(getRenderLevel\(.*\){.+?return)!\i\.\i\.can\(.+?VIEW_CHANNEL,this\.record\)\|\|/,
                     replace: (_, rest) => `${rest} `
                 }
             ]
@@ -282,13 +282,13 @@ export default definePlugin({
             replacement: [
                 {
                     // Change the role permission check to CONNECT if the channel is locked
-                    match: /(forceRoles:.+?)(\i\.\i\(\i\.\i\.ADMINISTRATOR,\i\.\i\.VIEW_CHANNEL\))(?<=context:(\i)}.+?)/,
-                    replace: (_, rest, mergedPermissions, channel) => `${rest}$self.swapViewChannelWithConnectPermission(${mergedPermissions},${channel})`
+                    match: /(forceRoles:.+?)(\i\.\i\.can\(.+?\))(?=.*context:(\i))/,
+                    replace: (_, rest, originalCan, channel) => `${rest}$self.swapViewChannelWithConnectPermission(${originalCan},${channel})`
                 },
                 {
                     // Change the permissionOverwrite check to CONNECT if the channel is locked
-                    match: /permissionOverwrites\[.+?\i=(?<=context:(\i)}.+?)(?=(.+?)VIEW_CHANNEL)/,
-                    replace: (m, channel, permCheck) => `${m}!Vencord.Webpack.Common.PermissionStore.can(${CONNECT}n,${channel})?${permCheck}CONNECT):`
+                    match: /permissionOverwrites\[.+?\]\s*=\s*(?=.+?VIEW_CHANNEL)/,
+                    replace: (m) => `${m}!Vencord.Webpack.Common.PermissionStore.can(${CONNECT}n,arguments[0])?`
                 },
                 {
                     // Include the @everyone role in the allowed roles list for Hidden Channels
@@ -301,7 +301,7 @@ export default definePlugin({
                     replace: (m, channel) => `${m}.reduce(...$self.makeAllowedRolesReduce(${channel}.guild_id))`
                 },
                 {
-                    // Patch the header to only return allowed users and roles if it's a hidden channel or locked channel (Like when it's used on the HiddenChannelLockScreen)
+                    // Patch the header to only return allowed users and roles if it's a hidden channel or locked channel
                     match: /return\(0,\i\.jsxs?\)\(\i\.\i,{channelId:(\i)\.id,children:\[(?=.{0,1000}?(\(0,\i\.jsxs?\)\("div",{className:\i\.\i,children:\[.{0,100}\i\.length>0.+?\]}\)),)/,
                     replace: (m, channel, allowedUsersAndRolesComponent) => `if($self.isHiddenChannel(${channel},true)){return${allowedUsersAndRolesComponent};}${m}`
                 },
@@ -332,7 +332,6 @@ export default definePlugin({
                 },
                 {
                     // Show only the plus text without overflowed children amount
-                    // if the overflow amount is <= 0 and the component is used inside the HiddenChannelLockScreen
                     match: /(?<=`\+\$\{)\i(?=\})/,
                     replace: overflowTextAmount => "" +
                         `$self.isHiddenChannel(typeof shcChannel!=="undefined"?shcChannel:void 0,true)&&(${overflowTextAmount}-1)<=0?"":${overflowTextAmount}`
@@ -434,7 +433,7 @@ export default definePlugin({
             find: "\"^/guild-stages/(\\\\d+)(?:/)?(\\\\d+)?\"",
             replacement: {
                 // Make mentions of hidden channels work
-                match: /\i\.\i\.can\(\i\.\i\.VIEW_CHANNEL,\i\)/,
+                match: /\i\.\i\.can\(.+?VIEW_CHANNEL,\i\)/,
                 replace: "true"
             },
         },
@@ -473,7 +472,7 @@ export default definePlugin({
             find: '"NowPlayingViewStore"',
             replacement: {
                 // Make active now voice states on hidden channels
-                match: /(getVoiceStateForUser.{0,150}?)&&\i\.\i\.canWithPartialContext.{0,20}VIEW_CHANNEL.+?}\)(?=\?)/,
+                match: /(getVoiceStateForUser.{0,150}?)&&\i\.\i\.canWithPartialContext.+?VIEW_CHANNEL.+?}\)(?=\?)/,
                 replace: "$1"
             }
         },
@@ -576,9 +575,4 @@ export default definePlugin({
                     aria-hidden={true}
                     role="img"
                 >
-                    <path fill="currentcolor" fillRule="evenodd" d="m19.8 22.6-4.2-4.15q-.875.275-1.762.413Q12.95 19 12 19q-3.775 0-6.725-2.087Q2.325 14.825 1 11.5q.525-1.325 1.325-2.463Q3.125 7.9 4.15 7L1.4 4.2l1.4-1.4 18.4 18.4ZM12 16q.275 0 .512-.025.238-.025.513-.1l-5.4-5.4q-.075.275-.1.513-.025.237-.025.512 0 1.875 1.312 3.188Q10.125 16 12 16Zm7.3.45-3.175-3.15q.175-.425.275-.862.1-.438.1-.938 0-1.875-1.312-3.188Q13.875 7 12 7q-.5 0-.938.1-.437.1-.862.3L7.65 4.85q1.025-.425 2.1-.638Q10.825 4 12 4q3.775 0 6.725 2.087Q21.675 8.175 23 11.5q-.575 1.475-1.512 2.738Q20.55 15.5 19.3 16.45Zm-4.625-4.6-3-3q.7-.125 1.288.112.587.238 1.012.688.425.45.613 1.038.187.587.087 1.162Z" />
-                </svg>
-            )}
-        </Tooltip>
-    ), { noop: true })
-});
+                    <path fill="currentcolor" fillRule="evenodd" d="m19.8 22.6-4.2-4.15q-.875.275-1.762.413Q12.95 19 12 19q-3.775 0-6.725-2.087Q2.325 14.825 1 11.5q.525-1.325 1.325-2.463Q3.125 7.9 4.15 7L1.4 4.2l1.4-1.4 18.4 18.4ZM12 16q.275 0 .512-.025.238-.025.513-.1l-5.4-5.4q-.075.275-.1.513-.025.237-.025.512 0 1.875 1.312 3.188Q10.125 16 12 16Zm7.3.45-3.175-3.15q.175-.425.275-.862.1-.438.1-.938 0-1.875-1.312-3.188Q13.875 7 12 7q-.5 0-.938.1-.437.1-.862.3L7.65 4.85q1.025-.425 2.1-.638Q10.825 4 12 4q3.775 0 6.725 2.087Q21.675 8.175 23 11.5q-.575 1.475-1.512 2.738Q20.55 15.5 19.3 16.45Zm-4.625-4.6-3-3q.7-.125 1.288.112.587.238 1.012.688.425.45.613
