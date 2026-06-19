@@ -82,7 +82,7 @@ export default definePlugin({
             replacement: [
                 // Remove the special logic for channels we don't have access to
                 {
-                    match: /if\(!\i\.\i\.can\(\i\.\i\.VIEW_CHANNEL.+?{if\(this\.id===\i\).+?threadIds:\[\]}}/,
+                    match: /if\(!\i\.\i\.can\(.+?VIEW_CHANNEL.+?{if\(this\.id===\i\).+?threadIds:\[\]}}/,
                     replace: ""
                 },
                 // Do not check for unreads when selecting the render level if the channel is hidden
@@ -97,7 +97,7 @@ export default definePlugin({
                 },
                 // Remove permission checking for getRenderLevel function
                 {
-                    match: /(getRenderLevel\(\i\){.+?return)!\i\.\i\.can\(\i\.\i\.VIEW_CHANNEL,this\.record\)\|\|/,
+                    match: /(getRenderLevel\(.*\){.+?return)!\i\.\i\.can\(.+?VIEW_CHANNEL,this\.record\)\|\|/,
                     replace: (_, rest) => `${rest} `
                 }
             ]
@@ -282,13 +282,13 @@ export default definePlugin({
             replacement: [
                 {
                     // Change the role permission check to CONNECT if the channel is locked
-                    match: /(forceRoles:.+?)(\i\.\i\(\i\.\i\.ADMINISTRATOR,\i\.\i\.VIEW_CHANNEL\))(?<=context:(\i)}.+?)/,
-                    replace: (_, rest, mergedPermissions, channel) => `${rest}$self.swapViewChannelWithConnectPermission(${mergedPermissions},${channel})`
+                    match: /(forceRoles:.+?)(\i\.\i\.can\(.+?\))(?=.*context:(\i))/,
+                    replace: (_, rest, originalCan, channel) => `${rest}$self.swapViewChannelWithConnectPermission(${originalCan},${channel})`
                 },
                 {
                     // Change the permissionOverwrite check to CONNECT if the channel is locked
-                    match: /permissionOverwrites\[.+?\i=(?<=context:(\i)}.+?)(?=(.+?)VIEW_CHANNEL)/,
-                    replace: (m, channel, permCheck) => `${m}!Vencord.Webpack.Common.PermissionStore.can(${CONNECT}n,${channel})?${permCheck}CONNECT):`
+                    match: /permissionOverwrites\[.+?\]\s*=\s*(?=.+?VIEW_CHANNEL)/,
+                    replace: (m) => `${m}!Vencord.Webpack.Common.PermissionStore.can(${CONNECT}n,arguments[0])?`
                 },
                 {
                     // Include the @everyone role in the allowed roles list for Hidden Channels
@@ -301,7 +301,7 @@ export default definePlugin({
                     replace: (m, channel) => `${m}.reduce(...$self.makeAllowedRolesReduce(${channel}.guild_id))`
                 },
                 {
-                    // Patch the header to only return allowed users and roles if it's a hidden channel or locked channel (Like when it's used on the HiddenChannelLockScreen)
+                    // Patch the header to only return allowed users and roles if it's a hidden channel or locked channel
                     match: /return\(0,\i\.jsxs?\)\(\i\.\i,{channelId:(\i)\.id,children:\[(?=.{0,1000}?(\(0,\i\.jsxs?\)\("div",{className:\i\.\i,children:\[.{0,100}\i\.length>0.+?\]}\)),)/,
                     replace: (m, channel, allowedUsersAndRolesComponent) => `if($self.isHiddenChannel(${channel},true)){return${allowedUsersAndRolesComponent};}${m}`
                 },
@@ -332,7 +332,6 @@ export default definePlugin({
                 },
                 {
                     // Show only the plus text without overflowed children amount
-                    // if the overflow amount is <= 0 and the component is used inside the HiddenChannelLockScreen
                     match: /(?<=`\+\$\{)\i(?=\})/,
                     replace: overflowTextAmount => "" +
                         `$self.isHiddenChannel(typeof shcChannel!=="undefined"?shcChannel:void 0,true)&&(${overflowTextAmount}-1)<=0?"":${overflowTextAmount}`
@@ -434,7 +433,7 @@ export default definePlugin({
             find: "\"^/guild-stages/(\\\\d+)(?:/)?(\\\\d+)?\"",
             replacement: {
                 // Make mentions of hidden channels work
-                match: /\i\.\i\.can\(\i\.\i\.VIEW_CHANNEL,\i\)/,
+                match: /\i\.\i\.can\(.+?VIEW_CHANNEL,\i\)/,
                 replace: "true"
             },
         },
@@ -473,7 +472,7 @@ export default definePlugin({
             find: '"NowPlayingViewStore"',
             replacement: {
                 // Make active now voice states on hidden channels
-                match: /(getVoiceStateForUser.{0,150}?)&&\i\.\i\.canWithPartialContext.{0,20}VIEW_CHANNEL.+?}\)(?=\?)/,
+                match: /(getVoiceStateForUser.{0,150}?)&&\i\.\i\.canWithPartialContext.+?VIEW_CHANNEL.+?}\)(?=\?)/,
                 replace: "$1"
             }
         },
@@ -507,6 +506,11 @@ export default definePlugin({
             if (channel == null || channel.isDM() || channel.isGroupDM() || channel.isMultiUserDM()) return false;
             if (["browse", "customize", "guide"].includes(channel.id)) return false;
 
+            // Discord maskesini düşür: İsmi şifrelenmiş veya uçurulmuş kanallara eklenti seviyesinde isim atıyoruz.
+            if (!channel.name || channel.name === "" || channel.name === "Erişim Yok") {
+                channel.name = "gizli-kanal 🔒";
+            }
+
             return !PermissionStore.can(PermissionsBits.VIEW_CHANNEL, channel) || checkConnect && !PermissionStore.can(PermissionsBits.CONNECT, channel);
         } catch (e) {
             console.error("[ViewHiddenChannels#isHiddenChannel]: ", e);
@@ -527,6 +531,10 @@ export default definePlugin({
             res[key] ??= [];
 
             for (const objChannel of maybeObjChannels) {
+                // Kanalları listeye eklemeden önce isim durumunu güvenceye alıyoruz
+                if (objChannel?.channel && (!objChannel.channel.name || objChannel.channel.name === "" || objChannel.channel.name === "Erişim Yok")) {
+                    objChannel.channel.name = "gizli-kanal 🔒";
+                }
                 if (isUncategorized(objChannel) || objChannel.channel.id === null || !this.isHiddenChannel(objChannel.channel)) res[key].push(objChannel);
             }
         }
